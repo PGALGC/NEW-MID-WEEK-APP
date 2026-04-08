@@ -1964,7 +1964,7 @@
       // Check for an unsaved per-date draft first
       const draft = getDraft(date);
       if (draft) {
-        players    = draft.players;
+        players    = draft.players.map(p => ({ cutManual: false, ...p }));
         nextId     = draft.nextId;
         roundSaved = draft.locked === true; // restore the exact lock state that was saved in the draft
         updateSavedIndicator();
@@ -1972,7 +1972,7 @@
         return;
       }
       if (rounds[date]) {
-        players    = rounds[date].players;
+        players    = rounds[date].players.map(p => ({ cutManual: false, ...p }));
         nextId     = rounds[date].nextId;
         roundSaved = rounds[date].locked === true; // locked only if explicitly saved as locked
       } else {
@@ -2008,7 +2008,8 @@
               todayScore: '',
               invested:   getPlayerInvested(prev.name).toFixed(2),
               won:        '',
-              badge:      ''         // Initialize badge
+              badge:      '',        // Initialize badge
+              cutManual:  false      // No manual cut override yet
             });
           });
         } else {
@@ -2202,7 +2203,7 @@
 
     function addPlayer() {
       const id = nextId++;
-      players.push({ id, name:'', selected:false, lastPHC:'', todayPHC:'', cutApplied:'', nextPHC:'', paid:false, todayScore:'', invested:'', won:'', wonLocked:false, badge:'' });
+      players.push({ id, name:'', selected:false, lastPHC:'', todayPHC:'', cutApplied:'', nextPHC:'', paid:false, todayScore:'', invested:'', won:'', wonLocked:false, badge:'', cutManual:false });
       autoSaveDraft();
       renderTable();
     }
@@ -2412,6 +2413,7 @@
       p[field] = value;
       // Auto-recalculate Next Time PHC whenever todayPHC or cutApplied changes
       if (field === 'todayPHC' || field === 'cutApplied') {
+        if (field === 'cutApplied') p.cutManual = true; // user typed this — don't auto-overwrite
         p.nextPHC = calcNextPHC(p.lastPHC, p.cutApplied);
         updateNextPHCDisplay(id, p.nextPHC);
       }
@@ -2440,6 +2442,7 @@
         } else {
           p.cutApplied = ''; // Clear cut if no badge selected
         }
+        p.cutManual = false; // badge sets cut automatically — not a manual override
         // Recalculate Next PHC based on new cut
         p.nextPHC = calcNextPHC(p.lastPHC, p.cutApplied);
         updateNextPHCDisplay(id, p.nextPHC);
@@ -2471,6 +2474,17 @@
       // Update only the nextPHC read-only cell without full re-render
       const spans = document.querySelectorAll('[data-nextphc="' + id + '"]');
       spans.forEach(s => s.textContent = val !== '' ? val : '—');
+    }
+
+    function resetCutToAuto(id) {
+      const p = players.find(p => p.id === id);
+      if (!p) return;
+      p.cutManual = false;
+      // Re-run calcCuts for all players so this player's cut is recalculated
+      calcCuts();
+      updateCutDisplays();
+      renderTable();
+      autoSaveDraft();
     }
 
     /* ── PRIZE MATRIX ── */
@@ -2552,11 +2566,20 @@
 
       players.forEach(p => {
         if (!p.paid || p.todayScore === '' || isNaN(parseFloat(p.todayScore))) {
-          // Not playing today — leave cut blank
-          p.cutApplied = '';
-          p.nextPHC = '';
+          // Not playing today — leave cut blank (but only if not manually set)
+          if (!p.cutManual) {
+            p.cutApplied = '';
+            p.nextPHC = '';
+          }
           return;
         }
+
+        // If user manually typed the cut, keep it — just update nextPHC from it
+        if (p.cutManual) {
+          p.nextPHC = calcNextPHC(p.lastPHC, p.cutApplied);
+          return;
+        }
+
         const score = parseFloat(p.todayScore);
         const phc   = parseFloat(p.todayPHC);
 
@@ -2673,7 +2696,18 @@
           '</td>' +
           '<td><input type="text" inputmode="numeric" placeholder="—" value="' + p.lastPHC + '" oninput="updateField(' + p.id + ',\'lastPHC\',this.value)"></td>' +
           '<td><input type="text" inputmode="numeric" placeholder="—" value="' + p.todayPHC + '" oninput="updateField(' + p.id + ',\'todayPHC\',this.value)"></td>' +
-          '<td><input type="text" inputmode="decimal" placeholder="—" value="' + p.cutApplied + '" oninput="updateField(' + p.id + ',\'cutApplied\',this.value)" ' + (roundSaved ? 'readonly' : '') + '></td>' +
+          '<td>' +
+            '<div style="display:flex;align-items:center;gap:3px;">' +
+              '<input type="text" inputmode="decimal" placeholder="—" value="' + p.cutApplied + '" ' +
+                'oninput="updateField(' + p.id + ',\'cutApplied\',this.value)" ' +
+                (roundSaved ? 'readonly' : '') +
+                (p.cutManual ? ' style="border-color:rgba(232,201,106,0.7);background:rgba(201,168,76,0.12);" title="Manual cut — auto-calc disabled"' : '') +
+              '>' +
+              (p.cutManual && !roundSaved
+                ? '<button onclick="resetCutToAuto(' + p.id + ')" title="Reset to auto-calculated cut" style="background:none;border:none;color:rgba(232,201,106,0.7);cursor:pointer;font-size:0.85rem;padding:0 2px;line-height:1;flex-shrink:0;" >↺</button>'
+                : '') +
+            '</div>' +
+          '</td>' +
           '<td class="cell-nextphc"><span data-nextphc="' + p.id + '">' + nextVal + '</span></td>' +
           '<td style="text-align:center"><input class="paid-check" type="checkbox" ' + (p.paid ? 'checked' : '') + (roundSaved ? ' disabled title="Round is finalised — unlock to edit"' : ' onchange="updateField(' + p.id + ',\'paid\',this.checked)"') + '></td>' +
           '<td style="text-align:center;"><select onchange="updateField(' + p.id + ',\'badge\',this.value)" style="padding:6px 8px;border:1px solid rgba(201,168,76,0.5);background:var(--green-mid);color:var(--cream);border-radius:4px;font-family:inherit;cursor:pointer;font-size:0.9rem;font-weight:500;" ' + (roundSaved ? 'disabled' : '') + '><option value="">—</option><option value="1st">1st</option><option value="2nd">2nd</option><option value="3rd">3rd</option></select></td>' +
