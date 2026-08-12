@@ -370,6 +370,25 @@
     }
     .btn-reset-date:hover { background: rgba(224,112,112,0.25); }
 
+    .btn-reset-all {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: #7a1f1f;
+      border: 1px solid #e07070;
+      color: #ffffff;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 0.55rem 1.1rem;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-reset-all:hover { background: #9c2828; }
+
     /* Locked £5 Paid checkbox when round is finalised */
     .paid-check:disabled {
       opacity: 0.45;
@@ -1525,6 +1544,10 @@
                 Restore
               </button>
               <input type="file" id="restore-file-input" accept=".json" style="display:none" onchange="restoreData(event)">
+              <button class="btn-reset-all" onclick="resetAllData()" title="Permanently delete every saved round, draft, handicap history and investment record">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                Reset All
+              </button>
               <button class="btn-weekly-report" onclick="openWeeklyReport()">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
                 Weekly Report
@@ -1931,6 +1954,71 @@
       refreshSavedDates();
       loadDate(date);
       showToast('Date Reset ✓');
+    }
+
+    function resetAllData() {
+      const rounds = getAllRounds();
+      const weekCount = Object.keys(rounds).length;
+      const warning = 'This will PERMANENTLY delete every week\'s data:\n\n' +
+        '• All ' + weekCount + ' saved round(s) & leaderboards\n' +
+        '• All handicap (PHC) history\n' +
+        '• All player payment/investment records\n' +
+        '• All unsaved drafts\n' +
+        '• The scorecard tab\n\n' +
+        'This cannot be undone. Consider clicking Backup first.\n\n' +
+        'Type RESET (all caps) to confirm:';
+      const typed = prompt(warning);
+      if (typed === null) return; // user cancelled
+      if (typed !== 'RESET') {
+        alert('Reset cancelled — confirmation text did not match.');
+        return;
+      }
+
+      // Wipe every piece of app data, regardless of which key it lives under
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(INVESTED_KEY);
+        localStorage.removeItem('golfScorecardData');
+        Object.keys(localStorage)
+          .filter(k => k.indexOf(DRAFT_KEY) === 0)
+          .forEach(k => localStorage.removeItem(k));
+      } catch(e) {}
+
+      // Reset in-memory state
+      players     = [];
+      nextId      = 1;
+      currentDate = '';
+      roundSaved  = false;
+      scorecardData = {
+        courseName: 'Golf Course',
+        date: new Date().toISOString().split('T')[0],
+        holes: [
+          {hole:1,par:4,index:10},{hole:2,par:4,index:8},{hole:3,par:3,index:16},
+          {hole:4,par:5,index:2},{hole:5,par:4,index:12},{hole:6,par:3,index:18},
+          {hole:7,par:4,index:4},{hole:8,par:4,index:14},{hole:9,par:5,index:6},
+          {hole:10,par:4,index:9},{hole:11,par:4,index:7},{hole:12,par:3,index:15},
+          {hole:13,par:5,index:1},{hole:14,par:4,index:11},{hole:15,par:3,index:17},
+          {hole:16,par:4,index:3},{hole:17,par:4,index:13},{hole:18,par:5,index:5}
+        ],
+        players: []
+      };
+
+      // Rebuild the UI from a clean slate
+      refreshSavedDates();
+      const today = getTodayStr();
+      document.getElementById('date-picker').value = today;
+      loadDate(today);
+
+      // If the scorecard tab exists and has been initialised, refresh it too
+      const courseNameEl = document.getElementById('courseName');
+      if (courseNameEl) {
+        courseNameEl.value = scorecardData.courseName;
+        const scDateEl = document.getElementById('scoreCardDate');
+        if (scDateEl) scDateEl.value = scorecardData.date;
+        if (typeof buildScorecardTable === 'function') buildScorecardTable();
+      }
+
+      showToast('All Data Reset ✓');
     }
 
     function saveDate() {
